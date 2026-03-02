@@ -1,37 +1,33 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
-
-const AGENTS = [
-  { id:'aria',   e:'📧', name:'Aria',   role:'Email Agent',    kw:['email','gmail','inbox','reply','message','unread'] },
-  { id:'dex',    e:'📁', name:'Dex',    role:'Drive Agent',    kw:['drive','document','file','doc','folder'] },
-  { id:'nova',   e:'🎨', name:'Nova',   role:'Design Agent',   kw:['design','canva','figma','presentation','poster','slide'] },
-  { id:'scout',  e:'🔍', name:'Scout',  role:'Research Agent', kw:['search','research','news','find','latest','trend','web'] },
-  { id:'voyage', e:'🗺️', name:'Voyage', role:'Travel Agent',   kw:['trip','travel','hotel','restaurant','weather','map','place','city'] },
-  { id:'blitz',  e:'🏆', name:'Blitz',  role:'Sports Agent',   kw:['sport','score','nba','nfl','cricket','soccer','football','tennis','ipl'] },
-  { id:'quill',  e:'✍️', name:'Quill',  role:'Writer Agent',   kw:['write','blog','post','article','content','draft','linkedin'] },
-  { id:'byte',   e:'💻', name:'Byte',   role:'Code Agent',     kw:['code','script','python','automate','program'] },
-  { id:'forge',  e:'📄', name:'Forge',  role:'Document Agent', kw:['word','excel','pdf','spreadsheet','invoice','report'] },
-];
+import { AGENTS, inferAgents } from '@/lib/agents';
 
 type Msg = { role: 'user' | 'assistant'; content: string; agents?: string[]; time?: string };
 type AgentStatus = 'idle' | 'working' | 'done';
 type ActivityItem = { text: string; color: string; id: number };
 
-function inferAgents(text: string) {
-  const l = text.toLowerCase();
-  return AGENTS.filter(a => a.kw.some(k => l.includes(k))).map(a => a.name);
+// Which channel user asked to send to (for Pulse automation after reply)
+function getPulseChannel(userMsg: string): 'telegram' | 'slack' | 'discord' | null {
+  const l = userMsg.toLowerCase();
+  if (/\b(telegram|tg)\b/.test(l) && /\b(send|to|my)\b/.test(l)) return 'telegram';
+  if (/\bslack\b/.test(l) && /\b(send|post|to)\b/.test(l)) return 'slack';
+  if (/\bdiscord\b/.test(l) && /\b(send|post|notify)\b/.test(l)) return 'discord';
+  return null;
 }
 
-// Determine which API routes to call based on message
+function wantsKeeperSave(userMsg: string): boolean {
+  return /\b(save|download|store|file)\b/.test(userMsg.toLowerCase());
+}
+
+// Run tools in parallel; includes Scout (search), Keeper (list), weather, sports, gmail, drive when relevant
 async function runTools(userMsg: string): Promise<Record<string, unknown>> {
   const l = userMsg.toLowerCase();
   const results: Record<string, unknown> = {};
-
   const calls: Promise<void>[] = [];
 
   if (/search|research|news|latest|find out|trend|web|look up/i.test(l)) {
     calls.push(
-      fetch('/api/search', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ query: userMsg }) })
+      fetch('/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: userMsg }) })
         .then(r => r.json()).then(d => { results['Scout (Web Search)'] = d; }).catch(() => {})
     );
   }
@@ -40,33 +36,40 @@ async function runTools(userMsg: string): Promise<Record<string, unknown>> {
     const cityMatch = l.match(/(?:weather|temperature|forecast) (?:in|at|for) ([a-z\s]+)/);
     const city = cityMatch?.[1]?.trim() ?? 'Mumbai';
     calls.push(
-      fetch('/api/weather', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ city }) })
-        .then(r => r.json()).then(d => { results['Voyage (Weather)'] = d; }).catch(() => {})
+      fetch('/api/weather', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city }) })
+        .then(r => r.json()).then(d => { results['Weather'] = d; }).catch(() => {})
     );
   }
 
   if (/sport|score|nba|nfl|cricket|ipl|soccer|football|tennis|match|game/i.test(l)) {
     const sport = /cricket|ipl/.test(l) ? 'cricket' : /nfl/.test(l) ? 'nfl' : /epl|premier/.test(l) ? 'epl' : 'nba';
     calls.push(
-      fetch('/api/sports', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ sport }) })
-        .then(r => r.json()).then(d => { results['Blitz (Sports)'] = d; }).catch(() => {})
+      fetch('/api/sports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sport }) })
+        .then(r => r.json()).then(d => { results['Sports'] = d; }).catch(() => {})
     );
   }
 
   if (/email|gmail|inbox|unread|message/i.test(l)) {
     const q = /unread/.test(l) ? 'is:unread' : /urgent|important/.test(l) ? 'is:important is:unread' : 'is:unread';
     calls.push(
-      fetch('/api/gmail', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'list', query: q }) })
-        .then(r => r.json()).then(d => { results['Aria (Gmail)'] = d; }).catch(() => {})
+      fetch('/api/gmail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list', query: q }) })
+        .then(r => r.json()).then(d => { results['Gmail'] = d; }).catch(() => {})
     );
   }
 
-  if (/drive|document|file|find.*doc|search.*file/i.test(l)) {
+  if (/drive|document|find.*doc|search.*file/i.test(l)) {
     const qMatch = l.match(/(?:find|search|look for) (.+?) (?:in|on) (?:drive|docs?)/);
     const q = qMatch?.[1] ?? userMsg.slice(0, 50);
     calls.push(
-      fetch('/api/drive', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ query: q }) })
-        .then(r => r.json()).then(d => { results['Dex (Drive)'] = d; }).catch(() => {})
+      fetch('/api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) })
+        .then(r => r.json()).then(d => { results['Drive'] = d; }).catch(() => {})
+    );
+  }
+
+  if (/list.*file|what'?s saved|saved files|keeper|my files/i.test(l)) {
+    calls.push(
+      fetch('/api/keeper', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) })
+        .then(r => r.json()).then(d => { results['Keeper (Files)'] = d; }).catch(() => {})
     );
   }
 
@@ -152,6 +155,35 @@ export default function Home() {
       setStatus(usedAgents, 'done');
       usedAgents.forEach(n => addActivity(`${n} completed`, 'g'));
       addActivity('Max delivered response', 'c');
+
+      // Real automation: Pulse sends reply to Telegram/Slack/Discord if user asked
+      const pulseChannel = getPulseChannel(text);
+      if (pulseChannel) {
+        addActivity(`Pulse sending to ${pulseChannel}...`, 'p');
+        fetch('/api/pulse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel: pulseChannel, text: reply }),
+        })
+          .then(r => r.json())
+          .then(d => d.sent && addActivity(`Sent to ${pulseChannel}`, 'g'))
+          .catch(() => addActivity(`Pulse (${pulseChannel}) failed`, ''));
+      }
+
+      // Real automation: Keeper saves reply as file if user asked to save
+      if (wantsKeeperSave(text)) {
+        addActivity('Keeper saving file...', 'p');
+        const filename = `report-${Date.now()}.txt`;
+        fetch('/api/keeper', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save', filename, content: reply }),
+        })
+          .then(r => r.json())
+          .then(d => d.ok && addActivity(`Saved ${d.filename}`, 'g'))
+          .catch(() => addActivity('Keeper save failed', ''));
+      }
+
       setTimeout(() => setAgentStatus({}), 4000);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: "Couldn't reach the backend. Check your API keys and try again.", time }]);
@@ -200,7 +232,7 @@ export default function Home() {
           {AGENTS.map(a => (
             <div key={a.id} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 10px', borderRadius:9, marginBottom:2 }}>
               <div style={{ width:30, height:30, borderRadius:8, background:'#1e1e30', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, flexShrink:0, position:'relative' }}>
-                {a.e}
+                {a.emoji}
                 <div style={{ position:'absolute', bottom:-1, right:-1, width:6, height:6, background:'#4ade80', borderRadius:'50%', border:'1.5px solid #10101a' }} />
               </div>
               <div>
@@ -238,12 +270,12 @@ export default function Home() {
               <div style={{ fontSize:13, color:'#7070a0', lineHeight:1.7, maxWidth:360, margin:'0 auto 20px' }}>Your Squad Leader. Tell me what you need — I&apos;ll coordinate the right agents and get it done.</div>
               <div style={{ display:'flex', flexWrap:'wrap', gap:8, justifyContent:'center' }}>
                 {[
-                  ['📧 Check emails','Check my emails and tell me what\'s urgent'],
-                  ['🗺️ Plan a trip','Plan a weekend trip to Goa for 2 people'],
-                  ['🔍 Research topic','Research the latest AI agent frameworks in 2025'],
-                  ['🏆 Sports scores','What are the latest NBA scores and standings?'],
+                  ['🔍 Research + Telegram','Research AI trends and send summary to my Telegram'],
+                  ['📡 Send to Telegram','Send a test message to my Telegram'],
+                  ['📄 Save report','Analyze productivity tips and save as a report'],
                   ['✍️ Write content','Write a LinkedIn post about productivity with AI'],
-                  ['📁 Search Drive','Search my Google Drive for any project plans'],
+                  ['🏆 Sports scores','What are the latest NBA scores and standings?'],
+                  ['📁 List saved files','List my saved files in Keeper'],
                 ].map(([label, q]) => (
                   <button key={label} onClick={() => { setInput(q); inputRef.current?.focus(); }}
                     style={{ background:'#18182a', border:'1px solid rgba(255,255,255,0.1)', borderRadius:9, padding:'7px 13px', fontSize:11, color:'#7070a0', cursor:'pointer', fontFamily:'DM Mono, monospace', transition:'all 0.15s' }}
@@ -314,7 +346,7 @@ export default function Home() {
             const s = getStatusClass(a.id);
             return (
               <div key={a.id} style={{ background: s === 'working' ? 'rgba(245,158,11,0.04)' : s === 'done' ? 'rgba(74,222,128,0.03)' : '#18182a', border: `1px solid ${s === 'working' ? 'rgba(245,158,11,0.3)' : s === 'done' ? 'rgba(74,222,128,0.22)' : 'rgba(255,255,255,0.06)'}`, borderRadius:9, padding:'8px 10px', display:'flex', alignItems:'center', gap:9, transition:'all 0.3s' }}>
-                <div style={{ width:30, height:30, borderRadius:7, background:'#1e1e30', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, flexShrink:0 }}>{a.e}</div>
+                <div style={{ width:30, height:30, borderRadius:7, background:'#1e1e30', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, flexShrink:0 }}>{a.emoji}</div>
                 <div style={{ flex:1 }}>
                   <div style={{ fontFamily:'Syne, sans-serif', fontSize:11, fontWeight:700, color:'#fff' }}>{a.name}</div>
                   <div style={{ fontSize:9, color:'#52526e' }}>{a.role}</div>

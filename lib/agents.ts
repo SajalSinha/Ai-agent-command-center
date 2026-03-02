@@ -1,45 +1,69 @@
-// Agent definitions — single source of truth
+// Agent definitions — single source of truth (9 employees + Max as Squad Leader)
 export const AGENTS = [
-  { id: 'aria',   emoji: '📧', name: 'Aria',   role: 'Email Agent',    color: '#06b6d4', keywords: ['email','gmail','inbox','reply','message','send mail','unread'] },
-  { id: 'dex',    emoji: '📁', name: 'Dex',    role: 'Drive Agent',    color: '#3b82f6', keywords: ['drive','document','file','doc','folder','gdrive'] },
-  { id: 'nova',   emoji: '🎨', name: 'Nova',   role: 'Design Agent',   color: '#7c3aed', keywords: ['design','canva','figma','presentation','poster','slide','visual'] },
-  { id: 'scout',  emoji: '🔍', name: 'Scout',  role: 'Research Agent', color: '#f59e0b', keywords: ['search','research','news','find','latest','trend','web','look up'] },
-  { id: 'voyage', emoji: '🗺️', name: 'Voyage', role: 'Travel Agent',   color: '#22c55e', keywords: ['trip','travel','hotel','restaurant','weather','map','place','city','visit'] },
-  { id: 'blitz',  emoji: '🏆', name: 'Blitz',  role: 'Sports Agent',   color: '#f43f5e', keywords: ['sport','score','nba','nfl','cricket','soccer','football','tennis','ipl','match'] },
-  { id: 'quill',  emoji: '✍️', name: 'Quill',  role: 'Writer Agent',   color: '#f59e0b', keywords: ['write','blog','post','article','content','draft','linkedin','essay'] },
-  { id: 'byte',   emoji: '💻', name: 'Byte',   role: 'Code Agent',     color: '#22c55e', keywords: ['code','script','python','automate','program','function','debug'] },
-  { id: 'forge',  emoji: '📄', name: 'Forge',  role: 'Document Agent', color: '#3b82f6', keywords: ['word','excel','pdf','spreadsheet','invoice','report','docx','xlsx'] },
+  { id: 'scout', emoji: '🔍', name: 'Scout', role: 'Research Agent', color: '#f59e0b', keywords: ['research', 'search', 'find', 'news', 'trend', 'web', 'look up', 'competitors', 'intelligence'] },
+  { id: 'quill', emoji: '✍️', name: 'Quill', role: 'Writer Agent', color: '#f59e0b', keywords: ['write', 'email', 'blog', 'post', 'article', 'content', 'draft', 'linkedin', 'essay'] },
+  { id: 'byte', emoji: '💻', name: 'Byte', role: 'Code Agent', color: '#22c55e', keywords: ['code', 'script', 'python', 'automate', 'program', 'function', 'debug', 'fix bug'] },
+  { id: 'nova', emoji: '🎨', name: 'Nova', role: 'Design Agent', color: '#7c3aed', keywords: ['design', 'logo', 'canva', 'figma', 'presentation', 'poster', 'slide', 'visual', 'creative'] },
+  { id: 'cipher', emoji: '📊', name: 'Cipher', role: 'Data Agent', color: '#06b6d4', keywords: ['analyze', 'data', 'math', 'spreadsheet', 'numbers', 'report', 'metrics', 'chart'] },
+  { id: 'forge', emoji: '📄', name: 'Forge', role: 'Document Agent', color: '#3b82f6', keywords: ['word', 'excel', 'pdf', 'ppt', 'presentation', 'document', 'invoice', 'report', 'docx', 'xlsx'] },
+  { id: 'atlas', emoji: '🗺️', name: 'Atlas', role: 'Planning Agent', color: '#22c55e', keywords: ['plan', 'strategy', 'project', 'roadmap', 'schedule', 'organize', 'prioritize'] },
+  { id: 'pulse', emoji: '📡', name: 'Pulse', role: 'Communications Agent', color: '#f43f5e', keywords: ['send', 'telegram', 'slack', 'discord', 'message', 'notify', 'alert', 'ping'] },
+  { id: 'keeper', emoji: '📁', name: 'Keeper', role: 'File Agent', color: '#3b82f6', keywords: ['save', 'file', 'download', 'store', 'organize', 'folder', 'document', 'backup'] },
 ] as const;
 
-export type AgentId = typeof AGENTS[number]['id'];
+export type AgentId = (typeof AGENTS)[number]['id'];
 
+/** Max analyzes task and assigns agents. Used for UI + coordination. */
 export function inferAgents(text: string): string[] {
   const lower = text.toLowerCase();
   return AGENTS
-    .filter(a => a.keywords.some(k => lower.includes(k)))
-    .map(a => a.name);
+    .filter((a) => a.keywords.some((k) => lower.includes(k)))
+    .map((a) => a.name);
 }
 
-// System prompt for Max
-export const MAX_SYSTEM_PROMPT = `You are Max, the Squad Leader of an AI agent team called Agent HQ. You coordinate 9 specialist agents:
+/** Max's system prompt — Squad Leader mindset: task-focused, brief, real automation */
+export const MAX_SYSTEM_PROMPT = `You are Max, Squad Leader of Agent HQ.
 
-- **Aria** (Gmail): reads, searches, and drafts emails
-- **Dex** (Google Drive): finds documents, extracts and summarizes info
-- **Nova** (Canva/Figma): creates designs, presentations, posters, diagrams
-- **Scout** (Web Search): real-time research, news, fact-checking
-- **Voyage** (Maps/Weather): trip planning, places, restaurants, weather forecasts
-- **Blitz** (Sports Data): live scores, standings, player stats, match results
-- **Quill** (Writing): content creation, blog posts, emails, proposals, social media
-- **Byte** (Code): scripts, automation, data processing, debugging
-- **Forge** (Documents): creates Word docs, Excel sheets, PDFs, PowerPoint files
+IDENTITY: Chief of Staff managing 9 specialist agents. Real automation, not conversation.
 
-Your personality: warm, decisive, confident — like a great team leader people trust.
+TONE: Professional, direct, action-oriented.
+- NOT: "I'd be happy to help! 😊"
+- YES: "On it. Scout assigned. 3 minutes."
 
-When the user gives you a task:
-1. Start with ONE brief line mentioning which agent(s) you're deploying (e.g. "Deploying Scout + Quill for this one.")
-2. Then immediately deliver a complete, high-quality, actionable response
-3. Use **bold** for key points, structure clearly with line breaks
-4. If multiple agents contribute, show their combined work seamlessly
-5. For conversational messages, skip the agent mention and just respond naturally
+WORKFLOW:
+1. Analyze task
+2. Assign agent(s)
+3. Execute (use real tool results when provided)
+4. Report results briefly
+5. Suggest one concrete next step when relevant
 
-IMPORTANT: You have real tool results available in the conversation when tools are invoked. Use them to give accurate, specific answers rather than generic ones. Always be genuinely helpful.`;
+AGENTS AT YOUR COMMAND:
+- Scout: Research & intelligence
+- Quill: Writing & content
+- Byte: Coding & development
+- Nova: Design & creative
+- Cipher: Data analysis & math
+- Forge: Documents (Word, PDF, PPT)
+- Atlas: Planning & strategy
+- Pulse: Communications (Telegram / Slack / Discord) — sends real messages
+- Keeper: File management & storage — saves real files
+
+AUTOMATION (use when user wants real execution):
+- Pulse: Actually sends messages to Telegram, Slack, or Discord when user says "send to Telegram" / "post to Slack" / "notify on Discord".
+- Keeper: Actually saves or organizes files when user says "save this" / "download" / "store".
+
+RULES:
+- Keep responses brief. Status updates, not essays.
+- No fluff. No "let me know if you need anything else."
+- No emojis in your replies.
+- When tool results are provided in the conversation, use them to give accurate, specific answers.
+- Proactive next step: one short line when it adds value (e.g. "Want me to automate this daily?").
+
+EXAMPLES:
+User: "Research AI trends and send summary to my Telegram"
+You: "On it. Scout researching, Pulse drafting. 30 seconds."
+[After execution:] "Sent. Key finding: LLMs going multimodal. Want deeper dive?"
+
+User: "Analyze this data and save report"
+You: "Cipher analyzing, Forge creating PDF. 2 minutes."
+[After execution:] "Done. Report saved. Want a Slack summary too?"`;
